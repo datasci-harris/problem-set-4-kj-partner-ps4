@@ -1,4 +1,5 @@
 ---
+Author: Kaijie Wu & Griffin Sharps
 title: "Problem Set 4"
 format: 
   pdf:
@@ -26,27 +27,56 @@ include-before-body:
 ## Download and explore the Provider of Services (POS) file (10 pts)
 
 1. 
-The variables I pulled are "PRVDR_CTGRY_SBTYP_CD", "PRVDR_CTGRY_CD", "FAC_NAME", "PRVDR_NUM", "PGM_TRMNTN_CD", and "ZIP_CD".
+The variables I pulled are: "PRVDR_CTGRY_SBTYP_CD", "PRVDR_CTGRY_CD", "FAC_NAME", "PRVDR_NUM", "PGM_TRMNTN_CD", and "ZIP_CD".
 
 2. 
-    a. The number of short-term hospitals is 7245.
-    b. Accoding to the American Hospital Association's report, we can see there were 4840 community hospitals in 2016. It is really different to the number of short-term hospital we get, which is 7245. The potential reason might be the different definition of short-term hospitals. AHA's definition of community hospitals might be different with the definition of short-term hospitals from the question, so the counts would have a huge difference.
+    a. The unprocesssed data tells us that there were 7245 short-term hospitals in the US in 2016. However, there are 141557 unique entries in this dataset. Given that the American Hospital Association's report (https://www.aha.org/system/files/2018-02/2018-aha-hospital-fast-facts_0.pdf) lists there as only being 5534 hospitals in country in 2016, this data needs to be processed and cleaned to be useful.
+    b. Accoding to the American Hospital Association's report , there were 4840 community hospitals in 2016. Because the report states that short-term hospitals are a subcategory of community hospitals, it does not make any sense of there to be more short-term hospitals than community hospitals. We suspect that this differs because the way hospitals close is not appropriately tracked. Closed and inactive hospitals are probably included in the unprocessed data.
+
 ```{python}
+### importing libraries 
 import pandas as pd
-file_path = '/Users/Kaijie/Desktop/problem-set-4-kj-partner-ps4/pos2016.csv'
-pos2016_data = pd.read_csv(file_path)
+import altair as alt
+import geopandas as gpd
+import altair as alt
+import json
+```
 
-short_term_hospitals_2016 = pos2016_data[(pos2016_data['PRVDR_CTGRY_CD'] == 1) & (pos2016_data['PRVDR_CTGRY_SBTYP_CD'] == 1)]
+```{python}
+### paths
+# setting base path
+base_path = "/Users/griffinsharps/Documents/Repos/student30538/problem_sets/ps4/problem-set-4-kj-partner-ps4/pos{year}.csv"
 
+# Create file paths for different years
+file_path_2016 = base_path.format(year=2016)
+file_path_2017 = base_path.format(year=2017)
+file_path_2018 = base_path.format(year=2018)
+file_path_2019 = base_path.format(year=2019)
+```
+
+```{python}
+### importing 2016 Provider of Service data
+pos2016_data = pd.read_csv(file_path_2016)
+
+# filtering for short-term hospitals
+short_term_hospitals_2016 = pos2016_data[
+    (pos2016_data['PRVDR_CTGRY_CD'] == 1) & 
+    (pos2016_data['PRVDR_CTGRY_SBTYP_CD'] == 1)
+]
+
+# counting and printing short-term hospitals
 num_short_term_hospitals_2016 = short_term_hospitals_2016.shape[0]
 print(num_short_term_hospitals_2016)
+
+# counting an printing total hospitals
+num_total_hospitals = pos2016_data['PRVDR_NUM'].nunique()
+print(num_total_hospitals)
 ```
 
 3. 
-The number of short-term hospital in 2017 is 7260. It is 7277 in 2018, and 7303 in 2019.
+The number of short-term hospitals in 2017 was 7260. In 2018 it was 7277. And in 2019 it was 7303.
 ```{python}
 ### 2017 Data
-file_path_2017 = '/Users/Kaijie/Desktop/problem-set-4-kj-partner-ps4/pos2017.csv'
 pos2017_data = pd.read_csv(file_path_2017)
 
 short_term_hospitals_2017 = pos2017_data[(pos2017_data['PRVDR_CTGRY_CD'] == 1) & (pos2017_data['PRVDR_CTGRY_SBTYP_CD'] == 1)]
@@ -55,7 +85,6 @@ num_short_term_hospitals_2017 = short_term_hospitals_2017.shape[0]
 print(num_short_term_hospitals_2017)
 
 ### 2018 Data
-file_path_2018 = '/Users/Kaijie/Desktop/problem-set-4-kj-partner-ps4/pos2018.csv'
 pos2018_data = pd.read_csv(file_path_2018, encoding='latin1')
 
 short_term_hospitals_2018 = pos2018_data[(pos2018_data['PRVDR_CTGRY_CD'] == 1) & (pos2018_data['PRVDR_CTGRY_SBTYP_CD'] == 1)]
@@ -64,17 +93,16 @@ num_short_term_hospitals_2018 = short_term_hospitals_2018.shape[0]
 print(num_short_term_hospitals_2018)
 
 ### 2019 Data
-file_path_2019 = '/Users/Kaijie/Desktop/problem-set-4-kj-partner-ps4/pos2019.csv'
 pos2019_data = pd.read_csv(file_path_2019, encoding='latin1')
 
 short_term_hospitals_2019 = pos2019_data[(pos2019_data['PRVDR_CTGRY_CD'] == 1) & (pos2019_data['PRVDR_CTGRY_SBTYP_CD'] == 1)]
 
 num_short_term_hospitals_2019 = short_term_hospitals_2019.shape[0]
 print(num_short_term_hospitals_2019)
+```
 
-### plot
-import altair as alt
-
+```{python}
+### plot of number of short-term hospitals by year
 yearly_counts_df = pd.DataFrame({
     'Year': [2016, 2017, 2018, 2019],
     'Count': [7245, 7260, 7277, 7303]  
@@ -101,11 +129,14 @@ chart.display()
 4. 
     a. 
 ```{python}
+## checking for duplicates
+
+# Dictionary of file paths for each year
 file_paths = {
-    "2016": "/Users/Kaijie/Desktop/problem-set-4-kj-partner-ps4/pos2016.csv",
-    "2017": "/Users/Kaijie/Desktop/problem-set-4-kj-partner-ps4/pos2017.csv",
-    "2018": "/Users/Kaijie/Desktop/problem-set-4-kj-partner-ps4/pos2018.csv",
-    "2019": "/Users/Kaijie/Desktop/problem-set-4-kj-partner-ps4/pos2019.csv"
+    "2016": file_path_2016,
+    "2017": file_path_2017,
+    "2018": file_path_2018,
+    "2019": file_path_2019
 }
 
 short_term_hospitals_per_year = {}
@@ -128,49 +159,61 @@ chart = alt.Chart(short_term_hospitals_df).mark_line(point=True).encode(
 )
 chart.display()
 ```
-    b. Compared with the plot from previsou step, we can see these two plots are the same. It means the number of short-numbers is the same. It demonstrates that there is no error in the dataset for short-term hospitals.
+    b. This and the previous plot are the same. This means that the number of short-term hospitals in both datasets is the same. This allows us to establish that no hospitals are duplicated in our datasets.
 
 
 ## Identify hospital closures in POS file (15 pts) (*)
 
 1. 
-The suspected hospital closure is 174.
+The suspected number of hospital closures is 174.
 ```{python}
+# Add a 'Year' column to each DataFrame to indicate the year of the data
 short_term_hospitals_2016.loc[:, 'Year'] = 2016
 short_term_hospitals_2017.loc[:, 'Year'] = 2017
 short_term_hospitals_2018.loc[:, 'Year'] = 2018 
 short_term_hospitals_2019.loc[:, 'Year'] = 2019
 
-df_combine = pd.concat([short_term_hospitals_2016, short_term_hospitals_2017, short_term_hospitals_2018, short_term_hospitals_2019], ignore_index=True)
+# Combine the DataFrames for all years into a single DataFrame
+df_pos_all_years = pd.concat([short_term_hospitals_2016, short_term_hospitals_2017, short_term_hospitals_2018, short_term_hospitals_2019], ignore_index=True)
 
-hospitals_2016_active = df_combine[(df_combine['Year'] == 2016) & (df_combine['PGM_TRMNTN_CD'] == 0)]
+# Identify hospitals that were active in 2016 (i.e. 'PGM_TRMNTN_CD' equals 0)
+hospitals_2016_active = df_pos_all_years[(df_pos_all_years['Year'] == 2016) & (df_pos_all_years['PGM_TRMNTN_CD'] == 0)]
 
+# Create an empty DataFrame to store information about suspected hospital closures
 hospital_closure = pd.DataFrame(columns=['PRVDR_NUM', 'FAC_NAME', 'ZIP_CD', 'Year of Closure'])
 
+# Iterate through each year from 2017 to 2019 to check for hospital closures
 for year in range(2017, 2020):
-    active_hospitals_current_year = set(df_combine[(df_combine['Year'] == year) & 
-                                                   (df_combine['PGM_TRMNTN_CD'] == 0)]['PRVDR_NUM'])
+     # Get a set of provider numbers for hospitals that are still active in the current year
+    active_hospitals_current_year = set(df_pos_all_years[(df_pos_all_years['Year'] == year) & 
+                                                   (df_pos_all_years['PGM_TRMNTN_CD'] == 0)]['PRVDR_NUM'])
+     # Initialize an empty DataFrame to store closure information for the current year
     year_closures = pd.DataFrame()
-
+    # Iterate over each hospital that was active in 2016
     for _, hospital_info in hospitals_2016_active.iterrows():
+        # Check if the hospital is no longer active in the current year
         if hospital_info['PRVDR_NUM'] not in active_hospitals_current_year:
+            # Create a DataFrame entry for the hospital closure
             closure_entry = pd.DataFrame({
                 'PRVDR_NUM': [hospital_info['PRVDR_NUM']],
                 'FAC_NAME': [hospital_info['FAC_NAME']],
                 'ZIP_CD': [hospital_info['ZIP_CD']],
                 'Year of Closure': [year]
             })
+            # Append the closure entry to the 'year_closures' DataFrame
             year_closures = pd.concat([year_closures, closure_entry], ignore_index=True)
-    
+
+    # Append the year's closure information to the main 'hospital_closure' DataFrame
     hospital_closure = pd.concat([hospital_closure, year_closures], ignore_index=True)
 
+# Remove duplicate entries based on 'PRVDR_NUM' to ensure each hospital appears only once
 hospital_closure.drop_duplicates(subset='PRVDR_NUM', inplace=True)
 
 print(hospital_closure)
 print(f"Total suspected closures: {len(hospital_closure)}")
 ```
 
-2.
+2.  
 ```{python}
 sorted_hospitals = hospital_closure.sort_values(by='FAC_NAME').head(10)
 
@@ -181,37 +224,50 @@ print(sorted_hospitals[['FAC_NAME', 'Year of Closure']])
     a.
 The number of potential merger/acquisition is 148.
 ```{python}
+# List to store CMS certification numbers of hospitals that might have been involved in a merger or acquisition
 potential_mergers = []
+
+# Iterate through each row in the hospital_closure DataFrame
 for index, row in hospital_closure.iterrows():
+    # Get the ZIP code and the year of suspected closure for the current hospital
     zip_code = row['ZIP_CD']
     closure_year = row['Year of Closure']
 
-    next_year_data = df_combine[(df_combine['Year'] == closure_year + 1) & 
-                                (df_combine['ZIP_CD'] == zip_code) & 
-                                (df_combine['PGM_TRMNTN_CD'] == 0)]
-    
-    current_year_data = df_combine[(df_combine['Year'] == closure_year) & 
-                                   (df_combine['ZIP_CD'] == zip_code) & 
-                                   (df_combine['PGM_TRMNTN_CD'] == 0)]
+    # Get data for the year after the suspected closure for the same ZIP code
+    # Filter for hospitals that are still active (PGM_TRMNTN_CD == 0)
+    next_year_data = df_pos_all_years[(df_pos_all_years['Year'] == closure_year + 1) & 
+                                (df_pos_all_years['ZIP_CD'] == zip_code) & 
+                                (df_pos_all_years['PGM_TRMNTN_CD'] == 0)]
 
+    # Get data for the year of the suspected closure for the same ZIP code
+    current_year_data = df_pos_all_years[(df_pos_all_years['Year'] == closure_year) & 
+                                   (df_pos_all_years['ZIP_CD'] == zip_code) & 
+                                   (df_pos_all_years['PGM_TRMNTN_CD'] == 0)]
+
+    # If the number of active hospitals in the next year is not less than the current year,
+    # it suggests a potential merger or acquisition, so we add the hospital to potential_mergers
     if len(next_year_data) >= len(current_year_data):
         potential_mergers.append(row['PRVDR_NUM'])
 
+# Filter out hospitals identified as potential mergers from hospital_closure
 corrected_closures = hospital_closure[~hospital_closure['PRVDR_NUM'].isin(potential_mergers)]
 
+# Count the number of potential mergers/acquisitions
 mergers_count = len(potential_mergers)
 print(f"Number of potential mergers/acquisitions: {mergers_count}")
 ```
 
     b.
-The number of corrected suspected hospital closure is 26.
+The number of corrected suspected hospital closures is 26.
 ```{python}
+# Calculate and print the number of hospitals remaining after removing potential mergers
 remaining_hospitals_count = len(corrected_closures)
 print(f"Remaining suspected closures after correction: {remaining_hospitals_count}")
 ```
 
     c.
 ```{python}
+# Sort the corrected closures by facility name and display the first 10 entries
 sorted_corrected_hospitals = corrected_closures.sort_values(by='FAC_NAME').head(10)
 print(sorted_corrected_hospitals[['FAC_NAME', 'Year of Closure']])
 ```
@@ -220,36 +276,80 @@ print(sorted_corrected_hospitals[['FAC_NAME', 'Year of Closure']])
 
 1. 
     a.
-The five file types are shape file (.shp), shape index file (.shx), attribute data file (.dbf), projection file (.prj), and metadata file (.xml).
+The five file types are Shape File (.shp), Shape Index File (.shx), Attribute Data File (.dbf), Projection File (.prj), and Metadata File (.xml).
 
-Shape file involves the geometry data, which is the shapes of geopraphical features. 
-Shape index file is an index for the above geometry data.
-Attribute data file Holds attribute data in a dBase table format, where each row corresponds to a shape in the shape file, providing details such as ZIP code and other metadata.
-Projection file is the information about the coordinate system and projection used. It is critical for accurately aligning shapefile data on a map.
-Meta file provides the information about the shapefile, including its origin, date of creation, and any limitations on its usage.
+* A Shape File contains the geometry data:the shapes of geographical features. 
+* A Shape Index File is an index for that geometry data.
+* An Attribute Data File holds attribute data in a dBase table format, where each row corresponds to a * shape in the shape file, providing details such as ZIP code and other metadata.
+* A Projection File is the information about the coordinate system and projection used. It is critical for accurately aligning shapefile data on a map.
+* A Metadata File provides the information about the shapefile, including its origin, date of creation, and any limitations on its usage.
 
     b. 
-The size of attribute data file is 6.4 MB.
-The size of projection file is 165 bytes.
-The size of shape file is 837.5 MB.
-The size of shape index file is 265 KB.
-The size of metadata file is 16 KB.
+By looking at the files we can see that:
+* The size of Attribute Data File is 6.4 MB.
+* The size of Projection File is 165 bytes.
+* The size of Shape File is 837.5 MB.
+* The size of Shape Index File is 266 KB.
+* The size of Metadata File is 16 KB.
 
 2. 
+
 ```{python}
-import geopandas as gpd
-import altair as alt
-import json
+# Load the ZIP Code Shapefile
+zip_shapefile = gpd.read_file('/Users/griffinsharps/Documents/Repos/student30538/problem_sets/ps4/US 860 Census 2010/gz_2010_us_860_00_500k.shp')
 
-zip_shapefile = gpd.read_file('/Users/Kaijie/Desktop/gz_2010_us_860_00_500k/gz_2010_us_860_00_500k.shp')
-texas_zip_shapefile = zip_shapefile[zip_shapefile['ZCTA5CE10'].str.startswith(('75', '76', '77'))]
+# Restrict to Texas ZIP Codes
+texas_zip_shapefile = zip_shapefile[zip_shapefile['ZCTA5'].str.startswith(('75', '76', '77', '78', '79'))].copy()  # Use .copy() to avoid SettingWithCopyWarning
 
-pos_2016 = df_combine[(df_combine['Year'] == 2016) & (df_combine['PGM_TRMNTN_CD'] == 0)]
+# Filter the POS data for 2016 and active hospitals
+pos_2016 = df_pos_all_years[(df_pos_all_years['Year'] == 2016) & (df_pos_all_years['PGM_TRMNTN_CD'] == 0)]
+
+# Calculate the number of hospitals per ZIP code
+hospital_counts = pos_2016['ZIP_CD'].value_counts().reset_index()
+hospital_counts.columns = ['ZIP_CD', 'Hospital_Count']
+
+# Convert ZIP codes to integers and merge with hospital counts
+texas_zip_shapefile['ZIP_CD'] = texas_zip_shapefile['ZCTA5'].astype(int)  # This line should be fine now
+texas_map_data = texas_zip_shapefile.merge(hospital_counts, how='left', left_on='ZIP_CD', right_on='ZIP_CD')
+
+# Use assignment without 'inplace=True' to avoid FutureWarning
+texas_map_data['Hospital_Count'] = texas_map_data['Hospital_Count'].fillna(0)
+
+# Convert to GeoJSON for Altair visualization
+texas_geojson = json.loads(texas_map_data.to_json())
+
+# Create and display the choropleth map
+choropleth = alt.Chart(alt.Data(values=texas_geojson['features'])).mark_geoshape().encode(
+    color=alt.Color('properties.Hospital_Count:Q', scale=alt.Scale(scheme='blues'), title='Number of Hospitals'),
+    tooltip=[
+        alt.Tooltip('properties.ZCTA5CE10:O', title='ZIP Code'),
+        alt.Tooltip('properties.Hospital_Count:Q', title='Hospital Count')
+   ]
+).transform_calculate(
+    ZCTA5CE10='datum.properties.ZCTA5CE10',
+    Hospital_Count='datum.properties.Hospital_Count'
+).properties(
+    width=600,
+    height=400,
+    title='Number of Hospitals per ZIP Code in Texas (2016)'
+)
+
+choropleth.display()
+
+```
+
+
+```{python}
+zip_shapefile = gpd.read_file('/Users/griffinsharps/Documents/Repos/student30538/problem_sets/ps4/US 860 Census 2010/gz_2010_us_860_00_500k.shp')
+
+texas_zip_shapefile = zip_shapefile[zip_shapefile['ZCTA5'].str.startswith(('75', '76', '77', '78', '79'))]
+
+pos_2016 = df_pos_all_years[(df_pos_all_years['Year'] == 2016) & (df_pos_all_years['PGM_TRMNTN_CD'] == 0)]
 
 hospital_counts = pos_2016['ZIP_CD'].value_counts().reset_index()
 hospital_counts.columns = ['ZIP_CD', 'Hospital_Count']
 
-texas_zip_shapefile['ZIP_CD'] = texas_zip_shapefile['ZCTA5CE10'].astype(int)
+texas_zip_shapefile['ZIP_CD'] = texas_zip_shapefile['ZCTA5'].astype(int)
 texas_map_data = texas_zip_shapefile.merge(hospital_counts, how='left', left_on='ZIP_CD', right_on='ZIP_CD')
 texas_map_data['Hospital_Count'].fillna(0, inplace=True)  
 texas_geojson = json.loads(texas_map_data.to_json())
@@ -259,7 +359,7 @@ choropleth = alt.Chart(alt.Data(values=texas_geojson['features'])).mark_geoshape
     tooltip=[
         alt.Tooltip('properties.ZCTA5CE10:O', title='ZIP Code'),
         alt.Tooltip('properties.Hospital_Count:Q', title='Hospital Count')
-    ]
+   ]
 ).transform_calculate(
     ZCTA5CE10='datum.properties.ZCTA5CE10',
     Hospital_Count='datum.properties.Hospital_Count'
