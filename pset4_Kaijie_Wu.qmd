@@ -40,6 +40,7 @@ import altair as alt
 import geopandas as gpd
 import altair as alt
 import json
+from dbfread import DBF
 ```
 
 ```{python}
@@ -295,78 +296,74 @@ By looking at the files we can see that:
 2. 
 
 ```{python}
-# Load the ZIP Code Shapefile
+# Load the ZIP Code Shapefile using GeoPandas
 zip_shapefile = gpd.read_file('/Users/griffinsharps/Documents/Repos/student30538/problem_sets/ps4/US 860 Census 2010/gz_2010_us_860_00_500k.shp')
 
-# Restrict to Texas ZIP Codes
-texas_zip_shapefile = zip_shapefile[zip_shapefile['ZCTA5'].str.startswith(('75', '76', '77', '78', '79'))].copy()  # Use .copy() to avoid SettingWithCopyWarning
+# Use a range to generate the prefixes and convert them to strings
+texas_prefixes = tuple(str(i) for i in range(75, 80))
 
-# Filter the POS data for 2016 and active hospitals
-pos_2016 = df_pos_all_years[(df_pos_all_years['Year'] == 2016) & (df_pos_all_years['PGM_TRMNTN_CD'] == 0)]
+# Subset the GeoDataFrame using the generated prefixes
+zips_texas_centroids = zips_all_centroids[zips_all_centroids['ZCTA5'].str.startswith(texas_prefixes)].copy()
 
-# Calculate the number of hospitals per ZIP code
+# Filter the POS data for the year 2016
+pos_2016 = df_pos_all_years[(df_pos_all_years['Year'] == 2016)]
+
+# Count the number of hospitals per ZIP code and create a DataFrame
 hospital_counts = pos_2016['ZIP_CD'].value_counts().reset_index()
-hospital_counts.columns = ['ZIP_CD', 'Hospital_Count']
+hospital_counts.columns = ['ZIP_CD', 'Hospital_Count']  # Rename columns for clarity
 
-# Convert ZIP codes to integers and merge with hospital counts
-texas_zip_shapefile['ZIP_CD'] = texas_zip_shapefile['ZCTA5'].astype(int)  # This line should be fine now
+# Make a copy of the filtered GeoDataFrame to avoid warnings
+texas_zip_shapefile = texas_zip_shapefile.copy()
+
+# Convert 'ZCTA5' to integer format for merging
+texas_zip_shapefile['ZIP_CD'] = texas_zip_shapefile['ZCTA5'].astype(int)
+
+# Merge the Texas ZIP shapefile data with the hospital counts DataFrame
+# This adds the 'Hospital_Count' column to the GeoDataFrame
 texas_map_data = texas_zip_shapefile.merge(hospital_counts, how='left', left_on='ZIP_CD', right_on='ZIP_CD')
 
-# Use assignment without 'inplace=True' to avoid FutureWarning
+# Fill any NaN values in 'Hospital_Count' with 0
 texas_map_data['Hospital_Count'] = texas_map_data['Hospital_Count'].fillna(0)
 
-# Convert to GeoJSON for Altair visualization
+# Convert the merged GeoDataFrame to GeoJSON format for visualization in Altair
 texas_geojson = json.loads(texas_map_data.to_json())
 
-# Create and display the choropleth map
+# Create a choropleth map using Altair to visualize the number of hospitals per ZIP code
 choropleth = alt.Chart(alt.Data(values=texas_geojson['features'])).mark_geoshape().encode(
     color=alt.Color('properties.Hospital_Count:Q', scale=alt.Scale(scheme='blues'), title='Number of Hospitals'),
     tooltip=[
-        alt.Tooltip('properties.ZCTA5CE10:O', title='ZIP Code'),
+        alt.Tooltip('properties.ZCTA5CE10:O', title='ZIP Code'),  
         alt.Tooltip('properties.Hospital_Count:Q', title='Hospital Count')
-   ]
+    ]
 ).transform_calculate(
     ZCTA5CE10='datum.properties.ZCTA5CE10',
     Hospital_Count='datum.properties.Hospital_Count'
 ).properties(
-    width=600,
-    height=400,
+    width=600,  
+    height=400,  
     title='Number of Hospitals per ZIP Code in Texas (2016)'
 )
 
 choropleth.display()
 
-```
+# This yields a skewed map of the state. ChatGPT suggests that this because we did not use a "geographic projection of the data". We corrected this using the albersUSA projection, which is built into Altair.
 
-
-```{python}
-zip_shapefile = gpd.read_file('/Users/griffinsharps/Documents/Repos/student30538/problem_sets/ps4/US 860 Census 2010/gz_2010_us_860_00_500k.shp')
-
-texas_zip_shapefile = zip_shapefile[zip_shapefile['ZCTA5'].str.startswith(('75', '76', '77', '78', '79'))]
-
-pos_2016 = df_pos_all_years[(df_pos_all_years['Year'] == 2016) & (df_pos_all_years['PGM_TRMNTN_CD'] == 0)]
-
-hospital_counts = pos_2016['ZIP_CD'].value_counts().reset_index()
-hospital_counts.columns = ['ZIP_CD', 'Hospital_Count']
-
-texas_zip_shapefile['ZIP_CD'] = texas_zip_shapefile['ZCTA5'].astype(int)
-texas_map_data = texas_zip_shapefile.merge(hospital_counts, how='left', left_on='ZIP_CD', right_on='ZIP_CD')
-texas_map_data['Hospital_Count'].fillna(0, inplace=True)  
-texas_geojson = json.loads(texas_map_data.to_json())
-
+# Create a choropleth map using Altair with the 'albersUsa' projection
 choropleth = alt.Chart(alt.Data(values=texas_geojson['features'])).mark_geoshape().encode(
     color=alt.Color('properties.Hospital_Count:Q', scale=alt.Scale(scheme='blues'), title='Number of Hospitals'),
     tooltip=[
-        alt.Tooltip('properties.ZCTA5CE10:O', title='ZIP Code'),
+        alt.Tooltip('properties.ZCTA5CE10:O', title='ZIP Code'),  
         alt.Tooltip('properties.Hospital_Count:Q', title='Hospital Count')
-   ]
+    ]
 ).transform_calculate(
     ZCTA5CE10='datum.properties.ZCTA5CE10',
     Hospital_Count='datum.properties.Hospital_Count'
 ).properties(
-    width=600,
-    height=400,
+    width=600,  
+    height=400,  
     title='Number of Hospitals per ZIP Code in Texas (2016)'
+).project(
+    type='albersUsa'  # Apply the Albers USA projection
 )
 
 choropleth.display()
@@ -374,9 +371,80 @@ choropleth.display()
 
 ## Calculate zip code’s distance to the nearest hospital (20 pts) (*)
 
-1. 
+1.  
+
+```{python}
+zips_all_centroids = zip_shapefile.copy()  # Make a copy to avoid modifying the original GeoDataFrame
+
+# Update the 'geometry' column to contain the centroids of each polygon
+zips_all_centroids['geometry'] = zips_all_centroids['geometry'].centroid
+
+# Display the dimensions of the resulting GeoDataFrame
+print(zips_all_centroids.shape)
+print(zips_all_centroids.columns)
+```
+The dimensions of the resulting GeoDataFrame are 33120 x 6.
+
+A manual search of the .xml file shows that the columns are:
+* GEO_ID: Unique identifier for a geographic entity [alphanumeric]
+* ZCTA5: ZIP Code Tabulation Area [5-digit Census code]
+* Name: Name without translated Legal/Statistical Area Description (LSAD) [alphanumeric]
+* LSAD: Standard abbreviation translation of Legal/Statistical Area Description (LSAD) code as used on census maps [alpha]
+* CENSUSAREA: Area of entity before generalization in square miles [numeric]
+* geometry: the geometry of the centroid points
+
 2. 
+
+```{python}
+# GeoDataFrame for all Texas zip codes
+zips_texas_centroids = zips_all_centroids[zips_all_centroids['ZCTA5'].str.startswith((texas_prefixes))].copy()
+
+# New tuple with all zip code prefixes
+all_prefixes = tuple(
+    str(i) for i in range(75, 80)   # 75-79
+) + tuple(
+    str(i) for i in range(870, 885) # 870-884
+) + tuple(
+    str(i) for i in range(73, 75)   # 73-74
+) + tuple(
+    str(i) for i in range(716, 730) # 716-729
+) + tuple(
+    str(i) for i in range(700, 716) # 700-715
+)
+
+# Subset the GeoDataFrame using the combined prefixes
+zips_texas_borderstates_centroids = zips_all_centroids[zips_all_centroids['ZCTA5'].str.startswith(all_prefixes)].copy()
+
+print(zips_texas_centroids.shape)
+print(zips_texas_borderstates_centroids.shape)
+
+zips_texas_borderstates_centroids
+```
+There are 1935 zip codes in Texas and 4057 in Texas and its bordering states.
+
 3. 
+```{python}
+# Convert 'ZIP_CD' to a string in the hospital_counts DataFrame to match the ZCTA5 column
+hospital_counts['ZIP_CD'] = hospital_counts['ZIP_CD'].astype(int).astype(str)
+
+# Merge the hospital_counts DataFrame with the zips_texas_borderstates_centroids GeoDataFrame
+zips_withhospital_centroids = zips_texas_borderstates_centroids.merge(
+    hospital_counts, 
+    how='left', 
+    left_on='ZCTA5', 
+    right_on='ZIP_CD'
+)
+
+# Fill any NaN values in the Hospital_Count column with 0
+zips_withhospital_centroids['Hospital_Count'] = zips_withhospital_centroids['Hospital_Count'].fillna(0)
+
+# Subset the merged GeoDataFrame to only include ZIP codes with at least one hospital
+zips_withhospital_centroids = zips_withhospital_centroids[zips_withhospital_centroids['Hospital_Count'] > 0]
+
+zips_withhospital_centroids
+```
+I used a left merge and merged on the variables ZCTA5 (left) and ZIP_CD (right). This ensures that we keep all of the zip codes in the zips_texas_borderstates_centroid GeoDataFrame.
+
 4. 
     a.
     b.
