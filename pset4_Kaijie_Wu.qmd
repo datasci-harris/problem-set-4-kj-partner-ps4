@@ -557,7 +557,7 @@ print(f"Overall average distance of all ZIP codes in Texas to a hospital: {overa
 zips_texas_geojson = json.loads(zips_texas_centroids.to_json())
 
 # Create a choropleth map using Altair
-choropleth = alt.Chart(alt.Data(values=zips_texas_geojson['features'])).mark_geoshape().encode(
+centroid_choropleth = alt.Chart(alt.Data(values=zips_texas_geojson['features'])).mark_geoshape().encode(
     color=alt.Color(
         'properties.Average_Distance_to_Nearest_Hospital:Q',
         scale=alt.Scale(scheme='blues'),
@@ -575,11 +575,10 @@ choropleth = alt.Chart(alt.Data(values=zips_texas_geojson['features'])).mark_geo
     height=600,
     title='Average Distance of Each ZIP Code in Texas to the Nearest Hospital (in Miles)'
 ).project(
-    type='albersUsa'  # Apply the Albers USA projection
+    type='albersUsa'
 )
 
-# Display the choropleth map
-choropleth.display()
+centroid_choropleth.display()
 ```
 ## Effects of closures on access in Texas (15 pts)
 
@@ -622,12 +621,11 @@ print(texas_closures_table)
 2. 
 4 zip codes in Texas were affected by hospital closures.
 ```{python}
-# Make a copy of zips_texas_centroids and convert 'ZCTA5' to integers
-zips_texas_centroids_int = zips_texas_centroids.copy()
-zips_texas_centroids_int['ZIP_CD'] = zips_texas_centroids_int['ZCTA5'].astype(int)
+# Make a copy of texas_projected GeoDataFrame
+zips_texas = texas_zip_shapefile.copy()
 
 # Merge the GeoDataFrame with the closures table
-texas_closures_choropleth_data = zips_texas_centroids_int.merge(
+texas_closures_choropleth_data = zips_texas.merge(
     texas_closures_table[['ZIP_CD', 'Number_of_Closures']],
     on='ZIP_CD',
     how='left'
@@ -675,6 +673,72 @@ texas_closures_choropleth.display()
 print(f"Number of ZIP codes in Texas directly affected by hospital closures: {num_affected_zips}")
 ```
 3. 
-4. 
+```{python}
+# Create a GeoDataFrame with only directly affected ZIP codes
+affected_zips_gdf = texas_closures_choropleth_data[
+    texas_closures_choropleth_data['Number_of_Closures'] > 0
+].copy()
 
+affected_zips_gdf_projected = affected_zips_gdf.to_crs(epsg=5070)
+
+# Conversion factor: miles to meters
+miles_to_meters = 1609.34
+
+# Create a buffered GeoDataFrame around the directly affected ZIP codes
+buffered_zips_gdf = affected_zips_gdf_projected.copy()
+buffered_zips_gdf['geometry'] = affected_zips_gdf_projected['geometry'].buffer(10 * miles_to_meters)
+
+# Perform a spatial join to see which ZIP codes are directly or indirectly affected
+# Note: Use the `texas_projected` rather than the texas_zip_shapefile GeoDataFrame to ensure distances are in meters
+joined_buffered_gdf = gpd.sjoin(texas_projected, buffered_zips_gdf, how='left', op='intersects')
+
+# Add a new column to indicate if a ZIP code is affected directly or indirectly
+joined_buffered_gdf['Affected_Status'] = joined_buffered_gdf.apply(
+    lambda row: 'Indirectly Affected' if pd.notnull(row.index_right) else 'Not Affected',
+    axis=1
+)
+
+# Update the status for ZIP codes that are directly affected by closures
+joined_buffered_gdf.loc[
+    joined_buffered_gdf['ZIP_CD'].isin(affected_zips_gdf['ZIP_CD']),
+    'Affected_Status'
+] = 'Directly Affected'
+
+# Count the number of ZIP codes marked as 'Indirectly Affected'
+num_indirectly_affected = joined_buffered_gdf[joined_buffered_gdf['Affected_Status'] == 'Indirectly Affected'].shape[0]
+
+print(f"Number of indirectly affected ZIP codes in Texas: {num_indirectly_affected}")
+```
+4. 
+```{python}
+# Convert the joined_buffered_gdf to GeoJSON for visualization
+texas_geojson = json.loads(joined_buffered_gdf.to_json())
+
+# Create the choropleth map
+choropleth = alt.Chart(alt.Data(values=texas_geojson['features'])).mark_geoshape().encode(
+    color=alt.Color(
+        'properties.Affected_Status:N',
+        scale=alt.Scale(
+            domain=['Directly Affected', 'Indirectly Affected', 'Not Affected'],
+            range=['red', 'orange', 'lightgray']
+        ),
+        legend=alt.Legend(title='Affected Status')
+    ),
+    tooltip=[
+        alt.Tooltip('properties.ZIP_CD:O', title='ZIP Code'),
+        alt.Tooltip('properties.Affected_Status:N', title='Affected Status')
+    ]
+).properties(
+    width=600,
+    height=400,
+    title='Texas ZIP Codes Affected by Hospital Closures (2016-2019)'
+)
+```
 ## Reflecting on the exercise (10 pts) 
+1. KJ's response.
+
+2. This method does not reflect changes in zip-code-level access to hospitals 
+well. As we can see from the earlier choropleths of the data, many zip codes do 
+not have a hospital within them, or are far away from a hospital. These zip 
+codes will be affected far more by nearby closures then zip codes that do 
+contain hospitals or that are close to other zip codes that do.
