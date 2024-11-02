@@ -40,7 +40,9 @@ import altair as alt
 import geopandas as gpd
 import altair as alt
 import json
-from dbfread import DBF
+import shapely
+import random
+import time
 ```
 
 ```{python}
@@ -303,7 +305,7 @@ zip_shapefile = gpd.read_file('/Users/griffinsharps/Documents/Repos/student30538
 texas_prefixes = tuple(str(i) for i in range(75, 80))
 
 # Subset the GeoDataFrame using the generated prefixes
-zips_texas_centroids = zips_all_centroids[zips_all_centroids['ZCTA5'].str.startswith(texas_prefixes)].copy()
+texas_zip_shapefile = zip_shapefile[zip_shapefile['ZCTA5'].str.startswith(texas_prefixes)].copy()
 
 # Filter the POS data for the year 2016
 pos_2016 = df_pos_all_years[(df_pos_all_years['Year'] == 2016)]
@@ -394,7 +396,6 @@ A manual search of the .xml file shows that the columns are:
 * geometry: the geometry of the centroid points
 
 2. 
-
 ```{python}
 # GeoDataFrame for all Texas zip codes
 zips_texas_centroids = zips_all_centroids[zips_all_centroids['ZCTA5'].str.startswith((texas_prefixes))].copy()
@@ -440,15 +441,85 @@ zips_withhospital_centroids['Hospital_Count'] = zips_withhospital_centroids['Hos
 
 # Subset the merged GeoDataFrame to only include ZIP codes with at least one hospital
 zips_withhospital_centroids = zips_withhospital_centroids[zips_withhospital_centroids['Hospital_Count'] > 0]
-
-zips_withhospital_centroids
 ```
 I used a left merge and merged on the variables ZCTA5 (left) and ZIP_CD (right). This ensures that we keep all of the zip codes in the zips_texas_borderstates_centroid GeoDataFrame.
 
 4. 
     a.
+    It takes 0.13 seconds to run the test code using 10 zip codes. Given that there are 1935 zip codes in Texas, I would expect the full code to take 25.16 seconds to run.
+```{python}
+# Start the timer
+start_time = time.time()
+
+# Your code chunk to be timed
+# Select 10 random indices from the re-projected GeoDataFrame
+random_indices = random.sample(range(len(zips_texas_centroids)), 10)
+
+# Subset the re-projected GeoDataFrame to include only the selected random indices
+zips_texas_sample = zips_texas_centroids.iloc[random_indices]
+
+# Calculate distances for each point in the sample to all points in zips_withhospital_centroids_projected
+zips_texas_sample.loc[:, 'Distance_to_Nearest_Hospital'] = [
+    zips_withhospital_centroids.distance(point).min() for point in zips_texas_sample.geometry
+]
+
+# Print the results
+print(zips_texas_sample[['ZCTA5', 'Distance_to_Nearest_Hospital']])
+
+# End the timer
+end_time = time.time()
+
+# Calculate and print the elapsed time
+elapsed_time = end_time - start_time
+print(f"Elapsed time: {elapsed_time:.2f} seconds")
+```
     b.
+    It takes 8.74 seconds to run the full code. My estimation was far too pessimistic!
+```{python}
+# Start the timer
+start_time = time.time()
+
+# Calculate distances for each point in zips_texas_centroids to all points in zips_withhospital_centroids and find the minimum distance
+zips_texas_centroids['Distance_to_Nearest_Hospital'] = [
+    zips_withhospital_centroids.distance(point).min() for point in zips_texas_centroids.geometry
+]
+
+# End the timer
+end_time = time.time()
+
+# Calculate and print the elapsed time
+elapsed_time = end_time - start_time
+print(f"Elapsed time: {elapsed_time:.2f} seconds")
+```
     c.
+    The units given in the .prj file are degrees, which cannot be converted directly into miles because they rely on both latitude and longitude. As you can see later, I used the Albers USA projection(EPSG:5070), which I found when I made the Altair chart above. This gives distances in meters, which I can convert to miles using the variable I created below.
+    In this region of the US 1 degree is roughly equivalent to just over 54 miles.
+```{python}
+# Specify the path to your .prj file
+prj_file_path = '/Users/griffinsharps/Documents/Repos/student30538/problem_sets/ps4/US 860 Census 2010/gz_2010_us_860_00_500k.prj'
+
+# Read the contents of the .prj file
+with open(prj_file_path, 'r') as file:
+    prj_content = file.read()
+
+# Print the CRS information
+print("Contents of the .prj file:")
+print(prj_content)
+
+# Reproject to a projected CRS, such as Albers USA (EPSG:5070)
+texas_projected = texas_zip_shapefile.to_crs(epsg=5070)
+
+# Now distances are in meters. Use the conversion factor to convert to miles
+meters_to_miles = 0.000621371
+
+# Example: Calculating distance between two points in miles
+point1 = texas_projected.geometry.iloc[0]
+point2 = texas_projected.geometry.iloc[1]
+distance_in_meters = point1.distance(point2)
+distance_in_miles = distance_in_meters * meters_to_miles
+
+print(f"Distance in miles: {distance_in_miles:.2f}")
+```
 5. 
     a.
     b.
