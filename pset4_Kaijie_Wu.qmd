@@ -259,7 +259,6 @@ corrected_closures = hospital_closure[~hospital_closure['PRVDR_NUM'].isin(potent
 mergers_count = len(potential_mergers)
 print(f"Number of potential mergers/acquisitions: {mergers_count}")
 ```
-
     b.
 The number of corrected suspected hospital closures is 26.
 ```{python}
@@ -521,14 +520,160 @@ distance_in_miles = distance_in_meters * meters_to_miles
 print(f"Distance in miles: {distance_in_miles:.2f}")
 ```
 5. 
+```{python}
+# Reproject both GeoDataFrames to Albers Equal Area (EPSG:5070) for accurate distance calculations
+zips_texas_centroids_projected = zips_texas_centroids.to_crs(epsg=5070)
+zips_withhospital_centroids_projected = zips_withhospital_centroids.to_crs(epsg=5070)
+
+# Calculate the average distance to all hospitals for each ZIP code in Texas
+average_distances = []
+for point in zips_texas_centroids_projected.geometry:
+    # Calculate distances from the current point to all hospital centroids
+    all_distances = zips_withhospital_centroids_projected.distance(point)
+    # Calculate the average distance
+    average_distance = all_distances.mean()
+    average_distances.append(average_distance)
+
+# Convert distances from meters to miles
+meters_to_miles = 0.000621371
+average_distances_in_miles = [distance * meters_to_miles for distance in average_distances]
+
+# Add the average distances as a new column to the original GeoDataFrame
+zips_texas_centroids['Average_Distance_to_Nearest_Hospital'] = average_distances_in_miles
+```
     a.
+    The units are originally in degrees. I updated the CRS so that they were then in meters. Then I converted meters to miles.
     b.
+    My calculation shows that the average distance from a Texas zipcode's centroid to a hospital in Texas is 317.04 miles. This does not make sense.
+```{python}
+overall_average_distance = zips_texas_centroids['Average_Distance_to_Nearest_Hospital'].mean()
+
+print(f"Overall average distance of all ZIP codes in Texas to a hospital: {overall_average_distance:.2f} miles")   
+```
     c.
-    
+
+```{python}
+# Convert the updated GeoDataFrame to GeoJSON format
+zips_texas_geojson = json.loads(zips_texas_centroids.to_json())
+
+# Create a choropleth map using Altair
+choropleth = alt.Chart(alt.Data(values=zips_texas_geojson['features'])).mark_geoshape().encode(
+    color=alt.Color(
+        'properties.Average_Distance_to_Nearest_Hospital:Q',
+        scale=alt.Scale(scheme='blues'),
+        title='Avg Distance to Hospital (miles)'
+    ),
+    tooltip=[
+        alt.Tooltip('properties.ZCTA5:O', title='ZIP Code'),
+        alt.Tooltip('properties.Average_Distance_to_Nearest_Hospital:Q', title='Avg Distance (miles)')
+    ]
+).transform_calculate(
+    ZCTA5='datum.properties.ZCTA5',
+    Average_Distance_to_Nearest_Hospital='datum.properties.Average_Distance_to_Nearest_Hospital'
+).properties(
+    width=800,
+    height=600,
+    title='Average Distance of Each ZIP Code in Texas to the Nearest Hospital (in Miles)'
+).project(
+    type='albersUsa'  # Apply the Albers USA projection
+)
+
+# Display the choropleth map
+choropleth.display()
+```
 ## Effects of closures on access in Texas (15 pts)
 
 1. 
+```{python}
+# Filter the `corrected_closures` DataFrame for Texas ZIP codes
+texas_closures = corrected_closures[corrected_closures['ZIP_CD'].astype(str).str.startswith(texas_prefixes)]
+
+# List  all the unique ZIP codes in Texas affected by hospital closures
+affected_zip_codes = texas_closures['ZIP_CD'].unique().tolist()
+
+# Generate a comprehensive list of all ZIP codes in Texas
+all_texas_zip_codes = zips_texas_centroids['ZCTA5'].unique()
+
+# Convert the list to a DataFrame
+all_texas_zip_codes_df = pd.DataFrame(all_texas_zip_codes, columns=['ZIP_CD'])
+
+# Count the number of closures by ZIP code
+closures_by_zip = texas_closures['ZIP_CD'].value_counts().reset_index()
+closures_by_zip.columns = ['ZIP_CD', 'Number_of_Closures']
+
+# Convert 'ZIP_CD' in closures_by_zip to string and remove decimal points
+closures_by_zip['ZIP_CD'] = closures_by_zip['ZIP_CD'].astype(int).astype(str).str.zfill(5)
+
+# Perform the left merge
+texas_closures_table = all_texas_zip_codes_df.merge(closures_by_zip, on='ZIP_CD', how='left')
+
+# Fill NaN values in 'Number_of_Closures' with 0 and change 
+texas_closures_table['Number_of_Closures'] = texas_closures_table['Number_of_Closures'].fillna(0).astype(int)
+
+# Convert all 'ZIP_CD' values in texas_closures_table to int for consistency
+texas_closures_table['ZIP_CD'] = texas_closures_table['ZIP_CD'].astype(int)
+
+print("List of affected ZIP codes in Texas:")
+print(affected_zip_codes)
+
+print("\nTable showing the number of hospital closures in Texas by ZIP code (including zero closures):")
+print(texas_closures_table)
+```
 2. 
+4 zip codes in Texas were affected by hospital closures.
+```{python}
+# Make a copy of zips_texas_centroids and convert 'ZCTA5' to integers
+zips_texas_centroids_int = zips_texas_centroids.copy()
+zips_texas_centroids_int['ZIP_CD'] = zips_texas_centroids_int['ZCTA5'].astype(int)
+
+# Merge the GeoDataFrame with the closures table
+texas_closures_choropleth_data = zips_texas_centroids_int.merge(
+    texas_closures_table[['ZIP_CD', 'Number_of_Closures']],
+    on='ZIP_CD',
+    how='left'
+)
+
+# Update the 'Number_of_Closures' column to create a categorical distinction
+texas_closures_choropleth_data['Closure_Status'] = texas_closures_choropleth_data['Number_of_Closures'].apply(
+    lambda x: 'No Closures' if x == 0 else 'Closures'
+)
+
+# Convert the updated GeoDataFrame to GeoJSON for Altair
+choropleth_geojson = json.loads(texas_closures_choropleth_data.to_json())
+
+# Plotting the choropleth
+texas_closures_choropleth = alt.Chart(alt.Data(values=choropleth_geojson['features'])).mark_geoshape().encode(
+    color=alt.Color(
+        'properties.Closure_Status:N',
+        scale=alt.Scale(
+            domain=['No Closures', 'Closures'],
+            range=['lightgray', 'red']  
+        ),
+        legend=alt.Legend(
+            title='Closure Status',
+            orient='right',
+            symbolType='square'
+        )
+    ),
+    tooltip=[
+        alt.Tooltip('properties.ZIP_CD:O', title='ZIP Code'),
+        alt.Tooltip('properties.Closure_Status:N', title='Closure Status')
+    ]
+).properties(
+    width=800,  
+    height=600, 
+    title='Texas ZIP Codes Affected by Hospital Closures (2016-2019)'
+).project(
+    type='albersUsa'
+)
+
+# Count the number of ZIP codes with at least one closure
+num_affected_zips = len(affected_zip_codes)
+
+texas_closures_choropleth.display()
+
+print(f"Number of ZIP codes in Texas directly affected by hospital closures: {num_affected_zips}")
+```
 3. 
 4. 
 
