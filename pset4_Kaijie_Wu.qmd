@@ -673,6 +673,7 @@ texas_closures_choropleth.display()
 print(f"Number of ZIP codes in Texas directly affected by hospital closures: {num_affected_zips}")
 ```
 3. 
+184 zip codes were indirectly affected.
 ```{python}
 # Create a GeoDataFrame with only directly affected ZIP codes
 affected_zips_gdf = texas_closures_choropleth_data[
@@ -690,17 +691,17 @@ buffered_zips_gdf['geometry'] = affected_zips_gdf_projected['geometry'].buffer(1
 
 # Perform a spatial join to see which ZIP codes are directly or indirectly affected
 # Note: Use the `texas_projected` rather than the texas_zip_shapefile GeoDataFrame to ensure distances are in meters
-joined_buffered_gdf = gpd.sjoin(texas_projected, buffered_zips_gdf, how='left', op='intersects')
+joined_buffered_gdf = gpd.sjoin(texas_projected, buffered_zips_gdf, how='left', predicate='intersects')
 
 # Add a new column to indicate if a ZIP code is affected directly or indirectly
 joined_buffered_gdf['Affected_Status'] = joined_buffered_gdf.apply(
-    lambda row: 'Indirectly Affected' if pd.notnull(row.index_right) else 'Not Affected',
+    lambda row: 'Indirectly Affected' if pd.notnull(row['index_right']) else 'Not Affected',
     axis=1
 )
 
 # Update the status for ZIP codes that are directly affected by closures
 joined_buffered_gdf.loc[
-    joined_buffered_gdf['ZIP_CD'].isin(affected_zips_gdf['ZIP_CD']),
+    joined_buffered_gdf['ZIP_CD_left'].isin(affected_zips_gdf['ZIP_CD']),
     'Affected_Status'
 ] = 'Directly Affected'
 
@@ -708,6 +709,8 @@ joined_buffered_gdf.loc[
 num_indirectly_affected = joined_buffered_gdf[joined_buffered_gdf['Affected_Status'] == 'Indirectly Affected'].shape[0]
 
 print(f"Number of indirectly affected ZIP codes in Texas: {num_indirectly_affected}")
+
+joined_buffered_gdf
 ```
 4. 
 ```{python}
@@ -715,7 +718,7 @@ print(f"Number of indirectly affected ZIP codes in Texas: {num_indirectly_affect
 texas_geojson = json.loads(joined_buffered_gdf.to_json())
 
 # Create the choropleth map
-choropleth = alt.Chart(alt.Data(values=texas_geojson['features'])).mark_geoshape().encode(
+direct_and_indirect_closures_choropleth = alt.Chart(alt.Data(values=texas_geojson['features'])).mark_geoshape().encode(
     color=alt.Color(
         'properties.Affected_Status:N',
         scale=alt.Scale(
@@ -725,14 +728,18 @@ choropleth = alt.Chart(alt.Data(values=texas_geojson['features'])).mark_geoshape
         legend=alt.Legend(title='Affected Status')
     ),
     tooltip=[
-        alt.Tooltip('properties.ZIP_CD:O', title='ZIP Code'),
+        alt.Tooltip('properties.ZIP_CD_left:O', title='ZIP Code'),  # Check that this matches your data
         alt.Tooltip('properties.Affected_Status:N', title='Affected Status')
     ]
 ).properties(
     width=600,
     height=400,
     title='Texas ZIP Codes Affected by Hospital Closures (2016-2019)'
+).project(
+    type='albersUsa'
 )
+
+direct_and_indirect_closures_choropleth
 ```
 ## Reflecting on the exercise (10 pts) 
 1. KJ's response.
