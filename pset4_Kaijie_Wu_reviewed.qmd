@@ -742,8 +742,7 @@ choropleth = alt.Chart(alt.Data(values=texas_geojson['features'])).mark_geoshape
 ```{python}
 import geopandas as gpd
 import pandas as pd
-import altair as alt
-import json
+import matplotlib.pyplot as plt
 
 # Define file paths for shapefiles and hospital closure data
 shapefile_path = r"C:\Users\james\Desktop\gz_2010_us_860_00_500k\gz_2010_us_860_00_500k.shp"
@@ -754,80 +753,71 @@ data_files = {
     2019: r"C:\Users\james\Desktop\problem-set-4-kj-partner-ps4\pos2019.csv"
 }
 
-# Load shapefile and filter for ZIP codes in Texas
-shapefile = gpd.read_file(shapefile_path)
-shapefile['ZCTA5'] = shapefile['ZCTA5'].astype(str)
-texas_zips = shapefile[shapefile['ZCTA5'].str.startswith(('75', '76', '77', '78', '79'))]
+# Load the shapefile and filter it to include only Texas ZIP codes
+gdf = gpd.read_file(shapefile_path)
+gdf['ZCTA5'] = gdf['ZCTA5'].astype(str)
+tx_gdf = gdf[gdf['ZCTA5'].str.startswith(('75', '76', '77', '78', '79'))]
 
-# Set a consistent CRS for distance calculations
-texas_zips = texas_zips.to_crs(epsg=32614)
+# Set a consistent CRS for accurate distance measurements
+tx_gdf = tx_gdf.to_crs(epsg=32614)
 
-# Load, filter, and compile closure data from each year
-closure_data = {}
+# Process and merge data from each year, focusing on short-term hospitals
+yearly_data = {}
 for year, file in data_files.items():
-    yearly_data = pd.read_csv(file, encoding='ISO-8859-1', low_memory=False)
-    filtered_data = yearly_data[yearly_data['PGM_TRMNTN_CD'].isin([1, 2, 3, 4, 5, 6, 7])]
-    filtered_data['Year'] = year
-    closure_data[year] = filtered_data[['PRVDR_NUM', 'PGM_TRMNTN_CD', 'ZIP_CD', 'Year']]
+    data = pd.read_csv(file, encoding='ISO-8859-1', low_memory=False)
+    data_filtered = data[(data['PRVDR_CTGRY_CD'] == 1) & (data['PRVDR_CTGRY_SBTYP_CD'] == 1)]
+    data_filtered['Year'] = year
+    yearly_data[year] = data_filtered[['PRVDR_NUM', 'FAC_NAME', 'PGM_TRMNTN_CD', 'ZIP_CD', 'Year']]
 
-# Combine data and count closures per ZIP code
-total_closures = pd.concat(closure_data.values())
-closure_counts = total_closures['ZIP_CD'].value_counts().reset_index()
-closure_counts.columns = ['ZIP_CD', 'closure_count']
+# Combine the filtered data and isolate closures specific to Texas
+df_combined = pd.concat(yearly_data.values())
+tx_closures = df_combined[df_combined['PGM_TRMNTN_CD'] != 0]
 
-# Identify directly affected ZIP codes
-directly_affected = closure_counts[closure_counts['closure_count'] > 0]
-directly_affected['ZIP_CD'] = directly_affected['ZIP_CD'].apply(lambda x: str(int(float(x))))
+# Count the closures by ZIP code
+closures_by_zip = tx_closures['ZIP_CD'].value_counts().reset_index()
+closures_by_zip.columns = ['ZIP_CD', 'closure_count']
+
+# Identify ZIP codes directly impacted by closures
+directly_impacted = closures_by_zip[closures_by_zip['closure_count'] > 0]
+directly_impacted['ZIP_CD'] = directly_impacted['ZIP_CD'].apply(lambda x: str(int(float(x))))
 
 # Create GeoDataFrame for directly affected ZIP codes
-direct_gdf = texas_zips[texas_zips['ZCTA5'].isin(directly_affected['ZIP_CD'])].copy()
-direct_gdf['category'] = 'Directly Affected'
+directly_impacted_gdf = tx_gdf[tx_gdf['ZCTA5'].isin(directly_impacted['ZIP_CD'])].copy()
+directly_impacted_gdf['category'] = 'Directly Affected'
 
 # Create a 10-mile buffer around directly affected ZIP codes
-direct_gdf['geometry'] = direct_gdf.geometry.buffer(10 * 1609.34)
+directly_impacted_gdf['geometry'] = directly_impacted_gdf.geometry.buffer(10 * 1609.34)
 
-# Find indirectly affected ZIP codes via spatial join
-indirect_gdf = gpd.sjoin(texas_zips, direct_gdf, how='inner', predicate='intersects')
-indirect_gdf = indirect_gdf[~indirect_gdf['ZCTA5_left'].isin(direct_gdf['ZCTA5'])]
-indirect_gdf['category'] = 'Indirectly Affected'
+# Identify indirectly affected ZIP codes using spatial join
+indirectly_impacted_gdf = gpd.sjoin(tx_gdf, directly_impacted_gdf, how="inner", predicate="intersects")
+indirectly_impacted_gdf = indirectly_impacted_gdf[~indirectly_impacted_gdf['ZCTA5_left'].isin(directly_impacted_gdf['ZCTA5'])]
+indirectly_impacted_gdf['category'] = 'Indirectly Affected'
 
-# Identify ZIP codes not affected
-unaffected_gdf = texas_zips[~texas_zips['ZCTA5'].isin(directly_affected['ZIP_CD']) &
-                            ~texas_zips['ZCTA5'].isin(indirect_gdf['ZCTA5_left'])]
-unaffected_gdf['category'] = 'Not Affected'
+# Identify ZIP codes that were not impacted
+not_impacted_gdf = tx_gdf[~tx_gdf['ZCTA5'].isin(directly_impacted['ZIP_CD']) &
+                          ~tx_gdf['ZCTA5'].isin(indirectly_impacted_gdf['ZCTA5_left'])]
+not_impacted_gdf['category'] = 'Not Affected'
 
-# Combine all data into one GeoDataFrame
+# Combine all ZIP code categories into one GeoDataFrame
 combined_gdf = pd.concat([
-    direct_gdf[['ZCTA5', 'geometry', 'category']],
-    indirect_gdf[['ZCTA5_left', 'geometry', 'category']].rename(columns={'ZCTA5_left': 'ZCTA5'}),
-    unaffected_gdf[['ZCTA5', 'geometry', 'category']]
+    directly_impacted_gdf[['ZCTA5', 'geometry', 'category']],
+    indirectly_impacted_gdf[['ZCTA5_left', 'geometry', 'category']].rename(columns={'ZCTA5_left': 'ZCTA5'}),
+    not_impacted_gdf[['ZCTA5', 'geometry', 'category']]
 ])
 
-# Ensure consistency in CRS
+# Ensure CRS consistency
 combined_gdf = combined_gdf.to_crs(epsg=32614)
 
-# Convert GeoDataFrame to GeoJSON for Altair
-combined_geojson = json.loads(combined_gdf.to_json())
+# Plot the map showing the impact of hospital closures
+fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+combined_gdf.plot(column='category', cmap='coolwarm', linewidth=0.8, ax=ax, edgecolor='0.8', legend=True, categorical=True)
 
-# Altair plot
-TX_Closure_Impact = alt.Chart(alt.Data(values=combined_geojson['features'])).mark_geoshape().encode(
-    color=alt.Color('properties.category:N',
-                    scale=alt.Scale(domain=['Directly Affected', 'Indirectly Affected', 'Not Affected'],
-                                    range=['red', 'orange', 'lightgray']),
-                    legend=alt.Legend(title='Closure Impact')),
-    tooltip=[
-        alt.Tooltip('properties.ZCTA5:O', title='ZIP Code'),
-        alt.Tooltip('properties.category:N', title='Category')
-    ]
-).properties(
-    width=800,
-    height=600,
-    title='Texas ZIP Codes by Closure Impact (2016-2019)'
-).project(
-    type='albersUsa'
-)
+# Customize the plot
+ax.set_title("Texas ZIP Codes and Hospital Closure Impact (2016-2019)")
+ax.set_axis_off()
 
-TX_Closure_Impact.display()
+# Display the final plot
+plt.show()
 ```
 
 ## Reflecting on the exercise (10 pts) 
